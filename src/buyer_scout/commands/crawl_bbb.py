@@ -26,8 +26,15 @@ def run_crawl_bbb(
     max_results: int,
     out_csv: Path,
     debug: bool = False,
+    profile_path: Path | None = None,
 ) -> None:
-    listings = browser.collect_results(query=query, location=location, max_results=max_results)
+    try:
+        listings = browser.collect_results(query=query, location=location, max_results=max_results)
+    except Exception:
+        if browser.debug_dir:
+            browser.debug_url("https://www.bbb.org/", browser.debug_dir / "results")
+        raise
+
     for listing in listings[:max_results]:
         artifact_dir = None
         if debug and browser.debug_dir:
@@ -36,15 +43,17 @@ def run_crawl_bbb(
 
         session = browser.scrape_profile(url=listing["url"], artifact_dir=artifact_dir)
         try:
-            parsed = parse_bbb_profile(session["page"], listing["url"])
+            parsed = parse_bbb_profile(session["page"], listing["url"], profile_path=profile_path)
             website = parsed.get("website", "")
             source_query = json.dumps({"query": query, "location": location}, sort_keys=True)
             extras = {
                 "selector_log": parsed.get("selector_log", {}),
+                "search_term": query,
                 "listing_name": listing.get("name", ""),
                 "console_messages": session.get("console", []),
                 "network_count": len(session.get("network", [])),
             }
+            extras.update(parsed.get("extra_fields", {}))
             lead_id = store.upsert_lead(
                 LeadRecord(
                     business_name=parsed.get("business_name", ""),
