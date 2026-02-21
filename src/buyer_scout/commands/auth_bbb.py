@@ -1,0 +1,7 @@
+from __future__ import annotations
+
+from buyer_scout.providers.bbb_browser import BBBBrowser
+
+
+def run_auth_bbb(browser: BBBBrowser) -> None:
+    browser.auth_login()

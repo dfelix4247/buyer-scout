@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Runtime data
+*.db
+*.sqlite
+*.sqlite3
+data/*.csv
+!data/.gitkeep
+
+# Scout data outputs (Windows defaults)
+C:/Users/danie/dev/scout-data/
+
+# Playwright auth/debug artifacts
+auth.json
+debug/
+
+# Misc
+.env
+.env.*
