@@ -1,0 +1,54 @@
+{
+  "name": "bbb_default",
+  "fields": [
+    {
+      "field_name": "business_name",
+      "strategy": "heading_text"
+    },
+    {
+      "field_name": "website",
+      "strategy": "label_next_value",
+      "labels": ["Business Website", "Website"],
+      "prefer_href": true
+    },
+    {
+      "field_name": "website",
+      "strategy": "link_text_href",
+      "link_text": "Visit Website"
+    },
+    {
+      "field_name": "phone_primary",
+      "strategy": "label_next_value",
+      "labels": ["Phone Number", "Phone"]
+    },
+    {
+      "field_name": "phone_primary",
+      "strategy": "tel_link"
+    },
+    {
+      "field_name": "years_in_business",
+      "strategy": "label_next_value",
+      "labels": ["Years in Business", "Years in business"]
+    },
+    {
+      "field_name": "customer_contact",
+      "strategy": "label_next_value",
+      "labels": ["Business Management", "Customer Contact"]
+    },
+    {
+      "field_name": "address_full",
+      "strategy": "label_next_value",
+      "labels": ["Business Address", "Address"]
+    },
+    {
+      "field_name": "business_started",
+      "strategy": "label_next_value",
+      "labels": ["Business Started"]
+    },
+    {
+      "field_name": "principal_contacts",
+      "strategy": "label_next_value",
+      "labels": ["Principal Contacts"]
+    }
+  ]
+}

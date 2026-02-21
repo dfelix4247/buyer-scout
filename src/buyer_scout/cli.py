@@ -10,6 +10,7 @@ from buyer_scout.commands.discover_serp import run_discover_serp
 from buyer_scout.commands.export import run_export
 from buyer_scout.config import get_config, load_shared_env
 from buyer_scout.core_store import CoreStore
+from buyer_scout.parsers.bbb_profile_parser import DEFAULT_PROFILE_PATH
 from buyer_scout.providers.bbb_browser import BBBBrowser
 
 
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     crawl.add_argument("--slowmo-ms", type=int, default=0)
     crawl.add_argument("--debug", action="store_true")
     crawl.add_argument("--trace", action="store_true")
+    crawl.add_argument("--profile", type=Path, default=DEFAULT_PROFILE_PATH)
 
     serp = sub.add_parser("discover-serp", help="Discover leads from Google via SerpAPI")
     serp.add_argument("--query", required=True)
@@ -77,6 +79,7 @@ def main() -> None:
             max_results=max_results,
             out_csv=out_csv,
             debug=args.debug,
+            profile_path=args.profile,
         )
         return
 

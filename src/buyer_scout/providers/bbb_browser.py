@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import re
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
@@ -86,10 +87,46 @@ class BBBBrowser:
         try:
             page = context.new_page()
             page.goto("https://www.bbb.org/", wait_until="domcontentloaded")
-            page.get_by_role("textbox", name="Search").fill(query)
-            page.get_by_role("textbox", name="Near").fill(location)
-            page.keyboard.press("Enter")
-            page.wait_for_timeout(2000)
+
+            query_input = page.get_by_placeholder(re.compile("find", re.I)).first
+            location_input = page.get_by_placeholder(re.compile("near", re.I)).first
+            search_submitted = False
+
+            if query_input.count() > 0 and location_input.count() > 0:
+                query_input.fill(query)
+                location_input.fill(location)
+                location_input.press("Enter")
+                search_submitted = True
+            else:
+                candidates = page.locator(
+                    "header input[type='search'], "
+                    "header input[role='combobox'], "
+                    "main input[type='search'], "
+                    "main input[role='combobox'], "
+                    "input[type='search'], "
+                    "input[role='combobox']"
+                )
+                candidate_count = candidates.count()
+                if candidate_count >= 2:
+                    candidates.nth(0).fill(query)
+                    candidates.nth(1).fill(location)
+                    candidates.nth(1).press("Enter")
+                    search_submitted = True
+                elif candidate_count == 1:
+                    candidates.nth(0).fill(f"{query} {location}".strip())
+                    candidates.nth(0).press("Enter")
+                    search_submitted = True
+
+            try:
+                page.wait_for_selector(
+                    "a[href*='/profile/'], [data-testid*='result'], section[class*='result']",
+                    timeout=15000,
+                )
+            except Exception as exc:
+                if self.debug_dir:
+                    self._write_debug_snapshot(page, self.debug_dir / "results")
+                action = "submitted search but no results rendered" if search_submitted else "search inputs unavailable and no results detected"
+                raise RuntimeError(f"BBB results did not load: {action}") from exc
 
             cards = page.locator("a[href*='/us/']")
             seen: set[str] = set()
@@ -110,6 +147,11 @@ class BBBBrowser:
             context.close()
             browser.close()
             pw.stop()
+
+    def _write_debug_snapshot(self, page: Page, out_dir: Path) -> None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "page.html").write_text(page.content(), encoding="utf-8")
+        page.screenshot(path=str(out_dir / "screenshot.png"), full_page=True)
 
     def debug_url(self, url: str, out_dir: Path) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
