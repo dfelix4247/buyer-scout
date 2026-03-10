@@ -18,7 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="buyer-scout", description="Buyer lead acquisition CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth-bbb", help="Open BBB in headed mode and save auth state")
+    auth = sub.add_parser("auth-bbb", help="Open BBB in headed mode and save auth state")
+    auth.add_argument("--timeout-sec", type=int, default=600)
 
     crawl = sub.add_parser("crawl-bbb", help="Crawl BBB listings and profiles")
     crawl.add_argument("--query", required=True)
@@ -30,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     crawl.add_argument("--debug", action="store_true")
     crawl.add_argument("--trace", action="store_true")
     crawl.add_argument("--profile", type=Path, default=DEFAULT_PROFILE_PATH)
+    crawl.add_argument("--timeout-sec", type=int, default=60)
 
     serp = sub.add_parser("discover-serp", help="Discover leads from Google via SerpAPI")
     serp.add_argument("--query", required=True)
@@ -43,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     debug.add_argument("--headed", action="store_true", default=True)
     debug.add_argument("--slowmo-ms", type=int, default=0)
     debug.add_argument("--trace", action="store_true")
+    debug.add_argument("--timeout-sec", type=int, default=60)
 
     return parser
 
@@ -59,7 +62,7 @@ def main() -> None:
 
     if args.command == "auth-bbb":
         browser = BBBBrowser(auth_path=cfg.auth_path, headed=True, debug_dir=cfg.debug_dir)
-        run_auth_bbb(browser)
+        run_auth_bbb(browser, timeout_sec=args.timeout_sec)
         return
 
     if args.command == "crawl-bbb":
@@ -80,6 +83,7 @@ def main() -> None:
             out_csv=out_csv,
             debug=args.debug,
             profile_path=args.profile,
+            timeout_sec=args.timeout_sec,
         )
         return
 
@@ -99,7 +103,7 @@ def main() -> None:
             debug_dir=cfg.debug_dir,
             trace=args.trace,
         )
-        run_debug_bbb(browser=browser, url=args.url)
+        run_debug_bbb(browser=browser, url=args.url, timeout_sec=args.timeout_sec)
         return
 
 

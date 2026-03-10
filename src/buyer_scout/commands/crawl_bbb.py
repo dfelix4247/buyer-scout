@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -27,21 +26,27 @@ def run_crawl_bbb(
     out_csv: Path,
     debug: bool = False,
     profile_path: Path | None = None,
+    timeout_sec: int = 60,
 ) -> None:
-    try:
-        listings = browser.collect_results(query=query, location=location, max_results=max_results)
-    except Exception:
-        if browser.debug_dir:
-            browser.debug_url("https://www.bbb.org/", browser.debug_dir / "results")
-        raise
+    listings = browser.collect_results(
+        query=query,
+        location=location,
+        max_results=max_results,
+        timeout_sec=timeout_sec,
+    )
 
-    for listing in listings[:max_results]:
+    if not listings:
+        raise RuntimeError("crawl-bbb found no listings; see debug artifacts and auth state")
+
+    print(f"Collected {len(listings)} BBB profile listing URL(s)")
+
+    for idx, listing in enumerate(listings[:max_results], start=1):
         artifact_dir = None
         if debug and browser.debug_dir:
             safe = listing["url"].split("/")[-1].replace("?", "_")
-            artifact_dir = browser.debug_dir / "profiles" / safe
+            artifact_dir = browser.debug_dir / "profiles" / f"{idx:03d}-{safe}"
 
-        session = browser.scrape_profile(url=listing["url"], artifact_dir=artifact_dir)
+        session = browser.scrape_profile(url=listing["url"], artifact_dir=artifact_dir, timeout_sec=timeout_sec)
         try:
             parsed = parse_bbb_profile(session["page"], listing["url"], profile_path=profile_path)
             website = parsed.get("website", "")
@@ -49,9 +54,12 @@ def run_crawl_bbb(
             extras = {
                 "selector_log": parsed.get("selector_log", {}),
                 "search_term": query,
+                "search_location": location,
                 "listing_name": listing.get("name", ""),
                 "console_messages": session.get("console", []),
                 "network_count": len(session.get("network", [])),
+                "business_started": parsed.get("business_started", ""),
+                "principal_contact": parsed.get("principal_contact", ""),
             }
             extras.update(parsed.get("extra_fields", {}))
             lead_id = store.upsert_lead(
@@ -61,9 +69,9 @@ def run_crawl_bbb(
                     domain=_domain(website),
                     phone_primary=parsed.get("phone_primary", ""),
                     phones_all=parsed.get("phones_all", ""),
-                    customer_contact=parsed.get("customer_contact", ""),
+                    customer_contact=parsed.get("customer_contact", "") or parsed.get("principal_contact", ""),
                     address_full=parsed.get("address_full", ""),
-                    years_in_business=parsed.get("years_in_business", ""),
+                    years_in_business=parsed.get("years_in_business", "") or parsed.get("business_started", ""),
                     source_category="bbb",
                     source_url=listing["url"],
                     source_query=source_query,
@@ -80,6 +88,5 @@ def run_crawl_bbb(
                         src.replace(debug_target / file_name)
         finally:
             browser.close_scrape_session(session)
-        time.sleep(0.8)
 
     run_export(store, out_csv)

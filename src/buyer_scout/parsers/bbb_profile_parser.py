@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import Locator, Page
+from playwright.sync_api import Page
 
 
 DEFAULT_PROFILE_PATH = Path(__file__).resolve().parents[1] / "profiles" / "bbb_default.json"
@@ -21,107 +21,98 @@ KNOWN_RECORD_FIELDS = {
 }
 
 
-def _value_next_to_label(page: Page, label: str, prefer_href: bool = False) -> str:
-    label_loc = page.get_by_text(label, exact=False).first
-    if label_loc.count() == 0:
-        return ""
-    candidate = label_loc.locator("xpath=following::*[self::a or self::p or self::span or self::div][1]")
-    if candidate.count() == 0:
-        return ""
-    first = candidate.first
-    if prefer_href:
-        href = first.get_attribute("href")
-        if href:
-            return href.strip()
-    return first.inner_text().strip()
-
-
-def _first_text(locators: list[Locator]) -> str:
-    for locator in locators:
-        if locator.count() > 0:
-            txt = locator.first.inner_text().strip()
-            if txt:
-                return txt
-    return ""
-
-
 def _load_profile(profile_path: Path | None) -> dict[str, Any]:
     resolved = profile_path or DEFAULT_PROFILE_PATH
     return json.loads(resolved.read_text(encoding="utf-8"))
 
 
-def _extract_from_spec(page: Page, spec: dict[str, Any]) -> tuple[str, str]:
-    strategy = spec.get("strategy", "")
-    selector_hint = "missing"
+def _extract_labeled_value(page: Page, labels: list[str]) -> str:
+    for label in labels:
+        pattern_label = label.rstrip("?")
+        dts = page.locator("dt")
+        for i in range(dts.count()):
+            dt = dts.nth(i)
+            if re.search(pattern_label, dt.inner_text(), re.IGNORECASE):
+                dd = dt.locator("xpath=following-sibling::dd[1]")
+                if dd.count() > 0:
+                    return " ".join(dd.first.inner_text().split())
 
-    if strategy == "heading_text":
-        value = _first_text([
-            page.get_by_role("heading", level=1),
-            page.locator("h1"),
-            page.locator("[data-testid='business-name']"),
-        ])
-        selector_hint = "role_h1" if value else "missing"
-        return value, selector_hint
+    text = page.inner_text("body")
+    for label in labels:
+        pattern = re.compile(rf"{label}\s*[:\-]?\s*(.+)", re.IGNORECASE)
+        for line in text.splitlines():
+            match = pattern.match(line.strip())
+            if match:
+                return match.group(1).strip()
+    return ""
 
-    if strategy == "label_next_value":
-        labels = spec.get("labels") or [spec.get("label", "")]
-        prefer_href = bool(spec.get("prefer_href", False))
-        for idx, label in enumerate([label for label in labels if label], 1):
-            value = _value_next_to_label(page, label, prefer_href=prefer_href)
-            if value:
-                return value, f"label_fallback_{idx}"
-        return "", "missing"
 
-    if strategy == "link_text_href":
-        pattern = re.compile(spec.get("link_text", "website"), re.I)
-        link = page.get_by_role("link", name=pattern).first
-        if link.count() > 0:
-            href = link.get_attribute("href") or ""
-            return href.strip(), "link_href"
-        return "", "missing"
-
-    if strategy == "tel_link":
-        link = page.locator("a[href^='tel:']").first
-        if link.count() > 0:
-            value = " ".join(link.inner_text().split())
-            return value, "tel_link"
-        return "", "missing"
-
-    return "", selector_hint
+def _name_from_url(url: str) -> str:
+    parts = url.rstrip("/").split("/profile/")
+    if len(parts) < 2:
+        return ""
+    slug = parts[1].split("/")[-1]
+    slug = re.sub(r"-\d{4}-\d+$", "", slug)
+    return slug.replace("-", " ").title()
 
 
 def parse_bbb_profile(page: Page, url: str, profile_path: Path | None = None) -> dict[str, Any]:
-    profile = _load_profile(profile_path)
-    field_specs: list[dict[str, Any]] = profile.get("fields", [])
-    extracted: dict[str, str] = {}
+    _load_profile(profile_path)
+
+    business_name = ""
     selector_log: dict[str, str] = {}
 
-    for spec in field_specs:
-        field_name = spec.get("field_name", "").strip()
-        if not field_name or extracted.get(field_name):
-            continue
-        value, hint = _extract_from_spec(page, spec)
-        if value:
-            extracted[field_name] = value
-        selector_log[field_name] = hint
+    loc = page.locator("#businessName")
+    if loc.count() > 0:
+        business_name = " ".join(loc.first.inner_text().split())
+        selector_log["business_name"] = "#businessName"
+
+    if not business_name:
+        title = page.title()
+        if "|" in title:
+            business_name = " ".join(title.split("|")[0].split()).strip()
+            selector_log["business_name"] = "title"
+
+    if not business_name:
+        business_name = _name_from_url(page.url)
+        selector_log["business_name"] = "url_slug"
+
+    website = ""
+    visit_link = page.locator("a:has-text('Visit Website')")
+    if visit_link.count() > 0:
+        website = visit_link.first.get_attribute("href") or ""
+        selector_log["website"] = "visit_website_link"
+
+    phone_primary = ""
+    tel_link = page.locator("a[href^='tel:']")
+    if tel_link.count() > 0:
+        phone_primary = (tel_link.first.get_attribute("href") or "").replace("tel:", "")
+        selector_log["phone_primary"] = "tel_link"
+
+    principal_contact = _extract_labeled_value(page, ["Principal Contacts?", "Principal Contact"])
+    business_started = _extract_labeled_value(page, ["Business Started", "Date Business Started"])
+
+    if principal_contact:
+        selector_log["principal_contact"] = "labeled_value"
+    if business_started:
+        selector_log["business_started"] = "labeled_value"
 
     extras: dict[str, str] = {}
-    for field_name, value in extracted.items():
-        target = "record" if field_name in KNOWN_RECORD_FIELDS else "extras"
-        if target == "extras":
-            extras[field_name] = value
-
-    phone_primary = extracted.get("phone_primary", "")
-    phones_all = extracted.get("phones_all", "") or phone_primary
+    if principal_contact:
+        extras["principal_contact"] = principal_contact
+    if business_started:
+        extras["business_started"] = business_started
 
     return {
-        "business_name": extracted.get("business_name", ""),
-        "website": extracted.get("website", ""),
+        "business_name": business_name,
+        "website": website,
         "phone_primary": phone_primary,
-        "phones_all": phones_all,
-        "years_in_business": extracted.get("years_in_business", ""),
-        "customer_contact": extracted.get("customer_contact", ""),
-        "address_full": extracted.get("address_full", ""),
+        "phones_all": phone_primary,
+        "years_in_business": "",
+        "customer_contact": principal_contact,
+        "principal_contact": principal_contact,
+        "business_started": business_started,
+        "address_full": "",
         "source_url": url,
         "selector_log": selector_log,
         "extra_fields": extras,
